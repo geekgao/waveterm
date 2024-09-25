@@ -202,6 +202,43 @@ tasks:
             - frontend/app/store/services.ts
             - frontend/app/store/wshserver.ts
 
+    version:tag:*:*:
+        desc: Bump the current package version and create a new tag in the repository. This requires administrator privileges.
+        vars:
+            VERSION_BUMP: "{{index .MATCH 0}}"
+            IS_PRERELEASE: "{{index .MATCH 1}}"
+        cmds:
+            - git checkout main && git pull && cd $( git rev-parse --show-toplevel )
+            - task: version:bump:{{.VERSION_BUMP}}:{{.IS_PRERELEASE}}
+            - cmd: |
+                  VERSION=$( node version.cjs )
+                  MESSAGE="chore: bump package version to $VERSION"
+                  FILE=package.json
+                  BRANCH=$( git rev-parse --abbrev-ref HEAD )
+                  SHA=$( git rev-parse $BRANCH:$FILE )
+                  CONTENT=$( base64 -i $FILE )
+                  gh api --silent --method PUT /repos/:owner/:repo/contents/$FILE \
+                      --field branch="$BRANCH" \
+                      --field message="$MESSAGE" \
+                      --field content="$CONTENT" \
+                      --field sha="$SHA"
+
+                  # Fetch the new commit and create a tag referencing it
+                  git fetch
+                  TAG_SHA=$( git rev-parse origin/$BRANCH )
+                  echo "$TAG_SHA"
+                  gh api --silent --method POST /repos/:owner/:repo/git/refs \
+                      --field ref="refs/tags/v$VERSION" \
+                      --field sha="$TAG_SHA"
+            - git restore package.json
+
+    version:bump:*:*:
+        desc: Bump the current package version.
+        vars:
+            VERSION_BUMP: "{{index .MATCH 0}}"
+            IS_PRERELEASE: "{{index .MATCH 1}}"
+        cmd: node version.cjs {{.VERSION_BUMP}} {{.IS_PRERELEASE}}
+
     version:
         desc: Get the current package version, or bump version if args are present. To pass args to `version.cjs`, add them after `--`. See `version.cjs` for usage definitions for the arguments.
         cmd: node version.cjs {{.CLI_ARGS}}
